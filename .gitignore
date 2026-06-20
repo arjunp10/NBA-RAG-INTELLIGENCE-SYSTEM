@@ -9,3 +9,4 @@ data/raw/reddit/
 eval/logs.db
 .DS_Store
 *.md
+!README.md
