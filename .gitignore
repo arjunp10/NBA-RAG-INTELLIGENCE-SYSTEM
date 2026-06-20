@@ -1,0 +1,10 @@
+venv/
+.env
+__pycache__/
+*.pyc
+*.pyo
+chroma_db/
+data/raw/espn/
+data/raw/reddit/
+eval/logs.db
+.DS_Store
