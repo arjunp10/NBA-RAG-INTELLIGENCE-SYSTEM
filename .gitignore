@@ -8,3 +8,4 @@ data/raw/espn/
 data/raw/reddit/
 eval/logs.db
 .DS_Store
+*.md
