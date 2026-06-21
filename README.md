@@ -62,3 +62,9 @@ REDDIT_USER_AGENT=
 - Implemented `data/scrape_espn.py` — scrapes ESPN game recap URLs passed via CLI args, saves `espn_YYYYMMDD_NNN.txt` to `data/raw/espn/`
 - Implemented `data/scrape_reddit.py` — pulls 25 most recent r/nba game threads via PRAW, saves `reddit_YYYYMMDD_NNN.txt` to `data/raw/reddit/`
 - Initialized GitHub repo and pushed M1 milestone
+
+### 2026-06-21
+
+- Implemented `ingest/chunk.py` — reads all scraped `.txt` files, parses scraper-written headers for metadata (`source`, `source_type`, `scraped_at`), splits text using `RecursiveCharacterTextSplitter` per config's `chunk_size` and `chunk_overlap`
+- Implemented `ingest/embed.py` — loops all 4 `RetrievalConfigs`, clears and repopulates a dedicated ChromaDB collection per config (`nba_docs_default`, `nba_docs_wider`, `nba_docs_smaller_chunks`, `nba_docs_larger_chunks`); clears before re-inserting to prevent duplicates
+- M2 complete: full ingest pipeline ready
