@@ -4,7 +4,7 @@ langchain-chroma
 langchain-community
 chromadb
 langgraph
-ragas
+ragas>=0.2,<0.3
 pandas
 plotly
 praw
@@ -13,3 +13,4 @@ beautifulsoup4
 python-dotenv
 datasets
 rich
+tiktoken

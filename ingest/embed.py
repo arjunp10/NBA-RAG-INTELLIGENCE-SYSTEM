@@ -2,10 +2,13 @@
 
 Collection names are nba_docs_{config.name} (e.g. nba_docs_default).
 Re-running clears each collection before re-inserting to avoid duplicates.
+
+Raw files are parsed once and split per config to avoid redundant disk I/O.
 """
 
 import logging
 import os
+from pathlib import Path
 from typing import List
 
 from dotenv import load_dotenv
@@ -29,9 +32,12 @@ logger = logging.getLogger(__name__)
 
 def _get_embeddings() -> GoogleGenerativeAIEmbeddings:
     """Instantiate the Google embedding model from the environment API key."""
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError("GOOGLE_API_KEY is not set. Add it to your .env file.")
     return GoogleGenerativeAIEmbeddings(
         model=EMBEDDING_MODEL,
-        google_api_key=os.environ["GOOGLE_API_KEY"],
+        google_api_key=api_key,
     )
 
 
@@ -40,7 +46,11 @@ def _collection_name(config: RetrievalConfig) -> str:
     return f"{CHROMA_COLLECTION_NAME}_{config.name}"
 
 
-def embed_config(config: RetrievalConfig, documents: List[Document]) -> int:
+def embed_config(
+    config: RetrievalConfig,
+    documents: List[Document],
+    embeddings: GoogleGenerativeAIEmbeddings,
+) -> int:
     """Embed a list of Documents into the ChromaDB collection for one config.
 
     Clears the existing collection before inserting to prevent duplicates.
@@ -48,15 +58,17 @@ def embed_config(config: RetrievalConfig, documents: List[Document]) -> int:
     Args:
         config: The RetrievalConfig whose chunk_size was used to produce documents.
         documents: Chunked Documents to embed.
+        embeddings: Shared embedding model instance.
 
     Returns:
         Number of documents successfully embedded.
+
+    Raises:
+        RuntimeError: If embedding succeeds but the collection ends up empty.
     """
     collection = _collection_name(config)
-    embeddings = _get_embeddings()
 
     try:
-        # Delete existing collection to avoid duplicates on re-ingest
         existing = Chroma(
             collection_name=collection,
             persist_directory=CHROMA_PERSIST_DIR,
@@ -74,30 +86,44 @@ def embed_config(config: RetrievalConfig, documents: List[Document]) -> int:
             collection_name=collection,
             persist_directory=CHROMA_PERSIST_DIR,
         )
-        count = vectorstore._collection.count()
-        logger.info(
-            "Embedded %d chunks into collection '%s'", count, collection
-        )
+        # Use public API to count — avoids private _collection attribute
+        count = len(vectorstore.get(include=[])["ids"])
+        if count == 0:
+            raise RuntimeError(
+                f"Embed succeeded but collection '{collection}' is empty — "
+                "check API quota or document content."
+            )
+        logger.info("Embedded %d chunks into collection '%s'", count, collection)
         return count
     except Exception as exc:
         logger.error("Failed to embed into collection '%s': %s", collection, exc)
-        return 0
+        raise
 
 
 def run_ingest() -> None:
-    """Chunk and embed all raw documents into all 4 ChromaDB collections."""
+    """Chunk and embed all raw documents into all ChromaDB collections.
+
+    Files are read from disk once per config (chunking parameters differ),
+    but a single embedding model instance is shared across all configs.
+    """
     logger.info("Starting ingest across %d configs", len(RETRIEVAL_CONFIGS))
+
+    # Build embeddings once — shared across all configs
+    embeddings = _get_embeddings()
 
     for config in RETRIEVAL_CONFIGS:
         logger.info(
-            "Processing config '%s' (chunk_size=%d, overlap=%d, k=%d)",
+            "Processing config '%s' (chunk_size=%d tokens, overlap=%d tokens, k=%d)",
             config.name, config.chunk_size, config.chunk_overlap, config.k,
         )
         documents = chunk_documents(config)
         if not documents:
             logger.warning("No documents to embed for config '%s' — skipping", config.name)
             continue
-        count = embed_config(config, documents)
-        logger.info("Config '%s' complete: %d vectors stored", config.name, count)
+        try:
+            count = embed_config(config, documents, embeddings)
+            logger.info("Config '%s' complete: %d vectors stored", config.name, count)
+        except RuntimeError as exc:
+            logger.error("Ingest failed for config '%s': %s", config.name, exc)
 
     logger.info("Ingest complete for all configs")

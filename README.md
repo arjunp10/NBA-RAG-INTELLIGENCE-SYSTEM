@@ -88,3 +88,25 @@ REDDIT_USER_AGENT=
   - `logs` / `logs --last N` — renders a rich table of past queries from SQLite; scores colored green/red by threshold
 - Added `app/__main__.py` so `python -m app.cli` dispatches correctly
 - M5 complete: system is fully buildable end-to-end
+
+### 2026-06-22 (post-review fixes)
+
+Full review by 6 specialized agents (rag-architect, ingestion-engineer, retrieval-engineer, llm-engineer, rag-evaluator, code-reviewer). Applied all critical and high-priority findings:
+
+**Critical fixes**
+- `eval/scorer.py` — migrated to RAGAS v0.2+ API; LLM/embeddings now passed directly to `evaluate()` instead of mutating global metric singletons; added `_safe_float()` to handle list-or-scalar return values and NaN; pinned `ragas>=0.2,<0.3` in requirements.txt
+- `nba_types.py` — `MAX_RETRIES` raised from 3 → 4 so all 4 `RetrievalConfig` entries are reachable
+- `pipeline/self_correct.py` — `_app` no longer compiled at module import time (lazy-init in `run_query`); `finalize_node` now uses `best.retry_count` instead of `state["retry_count"]`; `decide_node` simplified to drive purely off `config_index`; retriever/chain instances cached via `@lru_cache`
+- `eval/logger.py` — SQL injection fixed (`LIMIT ?` parameterized query); connections managed via `with` context manager to prevent leaks; `_get_connection` refactored into `_ensure_schema`
+- `pipeline/chain.py`, `pipeline/retriever.py`, `ingest/embed.py`, `eval/scorer.py` — `os.environ["GOOGLE_API_KEY"]` replaced with `.get()` + explicit `RuntimeError` with actionable message
+
+**High-priority fixes**
+- `ingest/chunk.py` — switched to token-based splitting via `tiktoken cl100k_base`; added `chunk_index`, `total_chunks`, `source_file` metadata per chunk; header parser made positional (fixed 3-line header fast path + robust fallback)
+- `ingest/embed.py` — replaced private `_collection.count()` with public `vectorstore.get(include=[])["ids"]`; raises `RuntimeError` on empty collection after embed; embedding model instantiated once and shared across all configs
+- `data/scrape_espn.py` — filenames now use URL hash to prevent same-day collisions; added 1.5s rate-limit delay between requests; minimum content length guard (200 chars) to skip paywalled responses; removed dead `ScrapedDocument` usage; `datetime.utcnow()` → `datetime.now(timezone.utc)`
+- `data/scrape_reddit.py` — filenames now use submission ID; fetch 2× limit then filter to posts with "game thread" in title; removed dead `ScrapedDocument` usage; `datetime.utcnow()` → `datetime.now(timezone.utc)`
+- `pipeline/chain.py` — `temperature` lowered from 0.2 → 0.0 for deterministic factual answers
+
+**Low-priority fixes**
+- `app/cli.py` — `_noop_context` replaced with `contextlib.nullcontext`; hardcoded `0.7` thresholds replaced with `SCORE_THRESHOLD` from `nba_types`
+- `requirements.txt` — added `tiktoken` for token-based chunking

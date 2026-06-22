@@ -10,6 +10,7 @@ All results are logged to SQLite regardless of outcome.
 """
 
 import logging
+from functools import lru_cache
 from typing import Optional, TypedDict
 
 from langgraph.graph import END, StateGraph
@@ -17,7 +18,6 @@ from langgraph.graph import END, StateGraph
 from eval.logger import log_result
 from eval.scorer import score_answer
 from nba_types import (
-    MAX_RETRIES,
     RETRIEVAL_CONFIGS,
     EvalScore,
     QueryResult,
@@ -28,6 +28,19 @@ from pipeline.chain import build_chain
 from pipeline.retriever import get_retriever
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Retriever cache — avoids re-opening Chroma + re-instantiating embeddings
+# on every retry attempt
+# ---------------------------------------------------------------------------
+
+@lru_cache(maxsize=None)
+def _cached_chain(config_name: str):
+    """Build and cache a chain for the given config name."""
+    config = next(c for c in RETRIEVAL_CONFIGS if c.name == config_name)
+    retriever = get_retriever(config)
+    return build_chain(retriever)
 
 
 # ---------------------------------------------------------------------------
@@ -60,9 +73,7 @@ def generate_node(state: PipelineState) -> PipelineState:
         state["retry_count"] + 1, config.name, config.k, config.chunk_size,
     )
 
-    retriever = get_retriever(config)
-    chain = build_chain(retriever)
-
+    chain = _cached_chain(config.name)
     chain_result = chain.invoke({"query": state["question"]})
     answer: str = chain_result["result"]
     source_docs = chain_result.get("source_documents", [])
@@ -98,7 +109,7 @@ def score_node(state: PipelineState) -> PipelineState:
         score=eval_score,
         config_used=state["config_used"],
         retry_count=state["retry_count"],
-        low_confidence=False,  # determined at decision time
+        low_confidence=False,  # determined at finalize time
     )
 
     # Keep track of the best result in case we exhaust all configs
@@ -115,16 +126,14 @@ def score_node(state: PipelineState) -> PipelineState:
 
 
 def decide_node(state: PipelineState) -> str:
-    """Route to END if score passes or configs are exhausted, else retry."""
+    """Route to END if score passes or all configs exhausted, else retry."""
     if state["score"].passed:
         logger.info("Score passed — returning result after %d attempt(s)", state["retry_count"] + 1)
         return "return_result"
 
     next_index = state["config_index"] + 1
-    if next_index >= len(RETRIEVAL_CONFIGS) or state["retry_count"] >= MAX_RETRIES - 1:
-        logger.warning(
-            "Max retries reached without passing threshold — returning best result"
-        )
+    if next_index >= len(RETRIEVAL_CONFIGS):
+        logger.warning("All configs exhausted without passing threshold — returning best result")
         return "return_result"
 
     logger.warning(
@@ -147,7 +156,7 @@ def finalize_node(state: PipelineState) -> PipelineState:
         chunks=best.chunks,
         score=best.score,
         config_used=best.config_used,
-        retry_count=state["retry_count"],
+        retry_count=best.retry_count,  # retry count from the best attempt, not the last
         low_confidence=low_confidence,
         timestamp=best.timestamp,
     )
@@ -193,9 +202,6 @@ def _build_graph() -> StateGraph:
     return graph
 
 
-_app = _build_graph().compile()
-
-
 # ---------------------------------------------------------------------------
 # Public interface
 # ---------------------------------------------------------------------------
@@ -203,12 +209,17 @@ _app = _build_graph().compile()
 def run_query(question: str) -> QueryResult:
     """Run the self-corrective RAG pipeline for a user question.
 
+    The LangGraph app is compiled lazily on first call so importing this
+    module does not require a populated environment.
+
     Args:
         question: Natural language question about NBA games or players.
 
     Returns:
         QueryResult with the best answer found, RAGAS scores, and metadata.
     """
+    app = _build_graph().compile()
+
     initial_state: PipelineState = {
         "question": question,
         "config_index": 0,
@@ -221,5 +232,5 @@ def run_query(question: str) -> QueryResult:
         "best_result": None,
     }
 
-    final_state = _app.invoke(initial_state)
+    final_state = app.invoke(initial_state)
     return final_state["best_result"]

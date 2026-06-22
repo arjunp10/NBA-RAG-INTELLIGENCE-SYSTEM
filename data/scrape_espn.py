@@ -4,12 +4,13 @@ Usage (via CLI):
     python -m app.cli scrape espn --url URL1 --url URL2 ...
 
 Each URL must be a direct link to an ESPN game recap article.
-Output files are named espn_{YYYYMMDD}_{index:03d}.txt.
+Output files are named espn_{YYYYMMDD}_{url_hash}.txt to avoid same-day collisions.
 """
 
+import hashlib
 import logging
-import os
-from datetime import datetime
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
 
@@ -17,7 +18,7 @@ import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
-from nba_types import ESPN_RAW_DIR, ScrapedDocument
+from nba_types import ESPN_RAW_DIR
 
 load_dotenv()
 
@@ -30,13 +31,14 @@ _HEADERS = {
         "Chrome/124.0.0.0 Safari/537.36"
     )
 }
+_REQUEST_DELAY_SECONDS = 1.5   # polite delay between ESPN requests
+_MIN_CONTENT_LENGTH = 200      # skip pages that returned less than this (paywalled etc.)
 
 
 def _extract_article_text(html: str, url: str) -> str:
     """Parse article body text from ESPN game recap HTML."""
     soup = BeautifulSoup(html, "html.parser")
 
-    # ESPN recap articles use <div class="article-body"> or <div class="story__body">
     for selector in ("div.article-body", "div.story__body", "article", "main"):
         container = soup.select_one(selector)
         if container:
@@ -63,10 +65,13 @@ def scrape_espn(urls: List[str]) -> None:
     output_dir = Path(ESPN_RAW_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    date_str = datetime.utcnow().strftime("%Y%m%d")
+    date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
     saved = 0
 
-    for idx, url in enumerate(urls, start=1):
+    for idx, url in enumerate(urls):
+        if idx > 0:
+            time.sleep(_REQUEST_DELAY_SECONDS)
+
         try:
             response = requests.get(url, headers=_HEADERS, timeout=15)
             response.raise_for_status()
@@ -75,25 +80,22 @@ def scrape_espn(urls: List[str]) -> None:
             continue
 
         content = _extract_article_text(response.text, url)
-        if not content.strip():
-            logger.warning("No text extracted from %s — skipping", url)
+        if len(content.strip()) < _MIN_CONTENT_LENGTH:
+            logger.warning(
+                "Too little content from %s (%d chars) — skipping (possible paywall)",
+                url, len(content.strip()),
+            )
             continue
 
-        scraped_at = datetime.utcnow().isoformat()
-        filename = f"espn_{date_str}_{idx:03d}.txt"
+        scraped_at = datetime.now(timezone.utc).isoformat()
+        url_hash = hashlib.sha1(url.encode()).hexdigest()[:8]
+        filename = f"espn_{date_str}_{url_hash}.txt"
         filepath = output_dir / filename
 
         header = f"SOURCE_URL: {url}\nSCRAPED_AT: {scraped_at}\nSOURCE_TYPE: espn\n\n"
         filepath.write_text(header + content, encoding="utf-8")
 
-        doc = ScrapedDocument(
-            content=content,
-            source_url=url,
-            source_type="espn",
-            scraped_at=scraped_at,
-            filename=filename,
-        )
-        logger.info("Saved %s (%d chars)", doc.filename, len(doc.content))
+        logger.info("Saved %s (%d chars)", filename, len(content))
         saved += 1
 
     logger.info("ESPN scrape complete: %d/%d URLs saved", saved, len(urls))

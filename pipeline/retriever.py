@@ -29,9 +29,13 @@ def get_retriever(config: RetrievalConfig) -> BaseRetriever:
     """
     collection_name = f"{CHROMA_COLLECTION_NAME}_{config.name}"
 
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError("GOOGLE_API_KEY is not set. Add it to your .env file.")
+
     embeddings = GoogleGenerativeAIEmbeddings(
         model=EMBEDDING_MODEL,
-        google_api_key=os.environ["GOOGLE_API_KEY"],
+        google_api_key=api_key,
     )
 
     try:

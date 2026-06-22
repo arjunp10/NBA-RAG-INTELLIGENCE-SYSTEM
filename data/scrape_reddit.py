@@ -1,19 +1,19 @@
 """Scrapes r/nba game threads via PRAW and saves raw text to data/raw/reddit/.
 
-Pulls the 25 most recent posts matching "game thread" from r/nba.
+Pulls the 25 most recent posts whose titles contain "game thread" from r/nba.
 Saves title + top-level comments for each thread.
-Output files are named reddit_{YYYYMMDD}_{index:03d}.txt.
+Output files are named reddit_{YYYYMMDD}_{submission_id}.txt to avoid same-day collisions.
 """
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import praw
 from dotenv import load_dotenv
 
-from nba_types import REDDIT_RAW_DIR, ScrapedDocument
+from nba_types import REDDIT_RAW_DIR
 
 load_dotenv()
 
@@ -63,27 +63,32 @@ def scrape_reddit() -> None:
         logger.error("Missing Reddit credential in environment: %s", exc)
         return
 
-    date_str = datetime.utcnow().strftime("%Y%m%d")
+    date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
     saved = 0
 
     try:
         results = reddit.subreddit("nba").search(
-            "game thread", sort="new", limit=_THREAD_LIMIT
+            "game thread", sort="new", limit=_THREAD_LIMIT * 2  # fetch extra to cover filter loss
         )
-        submissions = list(results)
+        # Filter to posts whose title actually contains "game thread"
+        submissions = [
+            s for s in results
+            if "game thread" in s.title.lower()
+        ][:_THREAD_LIMIT]
     except Exception as exc:
         logger.error("Reddit search failed: %s", exc)
         return
 
-    for idx, submission in enumerate(submissions, start=1):
+    for submission in submissions:
         try:
             content = _serialize_thread(submission)
         except Exception as exc:
             logger.error("Failed to serialize thread %s: %s", submission.id, exc)
             continue
 
-        scraped_at = datetime.utcnow().isoformat()
-        filename = f"reddit_{date_str}_{idx:03d}.txt"
+        scraped_at = datetime.now(timezone.utc).isoformat()
+        # Use submission ID in filename to prevent same-day collisions
+        filename = f"reddit_{date_str}_{submission.id}.txt"
         filepath = output_dir / filename
 
         header = (
@@ -93,14 +98,7 @@ def scrape_reddit() -> None:
         )
         filepath.write_text(header + content, encoding="utf-8")
 
-        doc = ScrapedDocument(
-            content=content,
-            source_url=f"https://www.reddit.com{submission.permalink}",
-            source_type="reddit",
-            scraped_at=scraped_at,
-            filename=filename,
-        )
-        logger.info("Saved %s (%d chars)", doc.filename, len(doc.content))
+        logger.info("Saved %s (%d chars)", filename, len(content))
         saved += 1
 
     logger.info("Reddit scrape complete: %d/%d threads saved", saved, len(submissions))

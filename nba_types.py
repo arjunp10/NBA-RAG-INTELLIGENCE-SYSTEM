@@ -1,7 +1,7 @@
 """Canonical dataclasses, constants, and config definitions for the NBA RAG system."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List
 
 
@@ -37,7 +37,7 @@ class QueryResult:
     config_used: RetrievalConfig
     retry_count: int
     low_confidence: bool
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -59,7 +59,7 @@ RETRIEVAL_CONFIGS: List[RetrievalConfig] = [
 
 # Scoring thresholds
 SCORE_THRESHOLD: float = 0.7
-MAX_RETRIES: int = 3
+MAX_RETRIES: int = 4  # one attempt per RetrievalConfig
 
 # Path constants
 CHROMA_PERSIST_DIR: str = "./chroma_db"

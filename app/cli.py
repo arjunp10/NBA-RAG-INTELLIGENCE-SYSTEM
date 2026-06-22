@@ -12,13 +12,16 @@ Usage:
 import argparse
 import logging
 import sys
+from contextlib import nullcontext
 
 from dotenv import load_dotenv
+from rich import box
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.panel import Panel
 from rich.table import Table
-from rich import box
+
+from nba_types import SCORE_THRESHOLD
 
 load_dotenv()
 
@@ -94,8 +97,8 @@ def cmd_ask(question: str) -> None:
     meta.add_column("Field", style="bold")
     meta.add_column("Value")
 
-    faith_color = "green" if result.score.faithfulness >= 0.7 else "red"
-    rel_color = "green" if result.score.answer_relevance >= 0.7 else "red"
+    faith_color = "green" if result.score.faithfulness >= SCORE_THRESHOLD else "red"
+    rel_color = "green" if result.score.answer_relevance >= SCORE_THRESHOLD else "red"
 
     meta.add_row("Faithfulness",     f"[{faith_color}]{result.score.faithfulness:.3f}[/{faith_color}]")
     meta.add_row("Answer Relevance", f"[{rel_color}]{result.score.answer_relevance:.3f}[/{rel_color}]")
@@ -107,7 +110,7 @@ def cmd_ask(question: str) -> None:
 
     # --- Sources ---
     if result.chunks:
-        with console.pager() if len(result.chunks) > 6 else _noop_context():
+        with console.pager() if len(result.chunks) > 6 else nullcontext():
             console.print("[bold]Sources[/bold]")
             for i, chunk in enumerate(result.chunks, 1):
                 preview = chunk.content[:150].replace("\n", " ")
@@ -144,8 +147,8 @@ def cmd_logs(last: int | None) -> None:
 
     for row in rows:
         question_preview = row["question"][:33] + "..." if len(row["question"]) > 36 else row["question"]
-        faith_color = "green" if row["faithfulness"] >= 0.7 else "red"
-        rel_color = "green" if row["answer_relevance"] >= 0.7 else "red"
+        faith_color = "green" if row["faithfulness"] >= SCORE_THRESHOLD else "red"
+        rel_color = "green" if row["answer_relevance"] >= SCORE_THRESHOLD else "red"
         confidence = "[red]LOW[/red]" if row["low_confidence"] else "[green]OK[/green]"
 
         table.add_row(
@@ -160,15 +163,6 @@ def cmd_logs(last: int | None) -> None:
         )
 
     console.print(table)
-
-
-# ---------------------------------------------------------------------------
-# Context manager helper (avoids importing contextlib for a one-liner)
-# ---------------------------------------------------------------------------
-
-class _noop_context:
-    def __enter__(self): return self
-    def __exit__(self, *_): pass
 
 
 # ---------------------------------------------------------------------------

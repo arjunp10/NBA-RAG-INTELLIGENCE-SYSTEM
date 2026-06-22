@@ -34,10 +34,14 @@ def build_chain(retriever: BaseRetriever) -> RetrievalQA:
     Returns:
         A RetrievalQA chain that returns the answer and source documents.
     """
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError("GOOGLE_API_KEY is not set. Add it to your .env file.")
+
     llm = ChatGoogleGenerativeAI(
         model=GEMINI_MODEL,
-        google_api_key=os.environ["GOOGLE_API_KEY"],
-        temperature=0.2,
+        google_api_key=api_key,
+        temperature=0.0,
     )
 
     chain = RetrievalQA.from_chain_type(
