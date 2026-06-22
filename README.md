@@ -77,3 +77,14 @@ REDDIT_USER_AGENT=
 - Implemented `eval/logger.py` — creates `eval/logs.db` SQLite on first run, writes every `QueryResult` to `query_logs`, exposes `fetch_logs(limit)` for the CLI
 - Implemented `pipeline/self_correct.py` — LangGraph state graph with generate → score → decide → (retry or finalize) loop; iterates through all 4 `RETRIEVAL_CONFIGS`, tracks best result, marks `low_confidence=True` if threshold never reached
 - M3–M4 complete: full self-corrective RAG pipeline ready
+
+### 2026-06-22 (continued)
+
+- Implemented `app/cli.py` — full CLI with all 5 commands using `argparse` + `rich`
+  - `scrape espn --url ...` — passes URLs to scraper, reports count
+  - `scrape reddit` — runs PRAW scraper
+  - `ingest` — triggers full 4-collection embed pipeline
+  - `ask "question"` — runs self-corrective RAG, displays answer in colored panel, scores, config used, retry count, and truncated source chunks
+  - `logs` / `logs --last N` — renders a rich table of past queries from SQLite; scores colored green/red by threshold
+- Added `app/__main__.py` so `python -m app.cli` dispatches correctly
+- M5 complete: system is fully buildable end-to-end
