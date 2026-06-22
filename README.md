@@ -68,3 +68,12 @@ REDDIT_USER_AGENT=
 - Implemented `ingest/chunk.py` — reads all scraped `.txt` files, parses scraper-written headers for metadata (`source`, `source_type`, `scraped_at`), splits text using `RecursiveCharacterTextSplitter` per config's `chunk_size` and `chunk_overlap`
 - Implemented `ingest/embed.py` — loops all 4 `RetrievalConfigs`, clears and repopulates a dedicated ChromaDB collection per config (`nba_docs_default`, `nba_docs_wider`, `nba_docs_smaller_chunks`, `nba_docs_larger_chunks`); clears before re-inserting to prevent duplicates
 - M2 complete: full ingest pipeline ready
+
+### 2026-06-22
+
+- Implemented `pipeline/retriever.py` — loads the correct ChromaDB collection (`nba_docs_{config.name}`) for a given `RetrievalConfig` and returns a LangChain retriever with `k` chunks
+- Implemented `pipeline/chain.py` — builds a `RetrievalQA` chain backed by Gemini 1.5 Flash with a custom NBA analyst prompt
+- Implemented `eval/scorer.py` — runs RAGAS `faithfulness` and `answer_relevancy` scoring; configured to use Gemini + Google embeddings as the judge (no OpenAI dependency)
+- Implemented `eval/logger.py` — creates `eval/logs.db` SQLite on first run, writes every `QueryResult` to `query_logs`, exposes `fetch_logs(limit)` for the CLI
+- Implemented `pipeline/self_correct.py` — LangGraph state graph with generate → score → decide → (retry or finalize) loop; iterates through all 4 `RETRIEVAL_CONFIGS`, tracks best result, marks `low_confidence=True` if threshold never reached
+- M3–M4 complete: full self-corrective RAG pipeline ready
