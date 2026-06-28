@@ -1,3 +1,6 @@
+
+# **Paused due to data constaints.**
+
 # NBA RAG Intelligence System
 
 A self-corrective Retrieval-Augmented Generation (RAG) CLI tool that answers qualitative questions about NBA games — the kind no box score can answer.
